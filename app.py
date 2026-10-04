@@ -242,9 +242,9 @@ def generate_pdf(multi_plan, active_selections):
     return buffer
 
 # ---------------------------------------------------------
-# Sidebar Controls & Quick-Add Helper
+# Sidebar Controls & Food Tools
 # ---------------------------------------------------------
-st.sidebar.title("🛠️ Tools & Food Lookup")
+st.sidebar.title("🛠️ Food Tools & Lookup")
 
 target_meal = st.sidebar.selectbox("Select Target Meal:", list(st.session_state.multi_plan.keys()))
 options_for_meal = list(st.session_state.multi_plan[target_meal].keys())
@@ -258,7 +258,8 @@ with st.sidebar.expander("➕ Create New Meal Option"):
             st.success(f"Created {new_opt_name} for {target_meal}!")
             st.rerun()
 
-with st.sidebar.expander("Search Live Nutrition Database", expanded=True):
+# 1. Search Online
+with st.sidebar.expander("🔍 Search Live Nutrition Database", expanded=True):
     search_term = st.text_input("Product Name:", placeholder="e.g. oats, hake, sirloin")
     if st.button("Search Web"):
         if search_term.strip():
@@ -274,7 +275,7 @@ with st.sidebar.expander("Search Live Nutrition Database", expanded=True):
         selected_item = options[selected_label]
         
         add_grams = st.number_input("Serving Grams:", min_value=1.0, max_value=1000.0, value=100.0, step=5.0)
-        if st.button("➕ Add to Target Option"):
+        if st.button("➕ Add Found Item"):
             st.session_state.multi_plan[target_meal][target_option].append({
                 "name": selected_item["name"],
                 "grams": float(add_grams),
@@ -286,6 +287,35 @@ with st.sidebar.expander("Search Live Nutrition Database", expanded=True):
             st.success(f"Added to {target_meal} [{target_option}]!")
             st.rerun()
 
+# 2. Manual Custom Item Addition (When not found online)
+with st.sidebar.expander("✍️ Manual Custom Item (Label Entry)"):
+    st.caption("Input nutrition directly from the food label (per 100g reference values):")
+    man_name = st.text_input("Item / Product Name:", placeholder="e.g., Lean Mince, Local Biltong")
+    man_grams = st.number_input("Portion to Add (grams):", min_value=1.0, max_value=2000.0, value=100.0, step=5.0)
+    
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        man_cal = st.number_input("Calories (per 100g):", min_value=0.0, value=100.0, step=5.0)
+        man_carb = st.number_input("Carbs g (per 100g):", min_value=0.0, value=0.0, step=1.0)
+    with col_m2:
+        man_pro = st.number_input("Protein g (per 100g):", min_value=0.0, value=20.0, step=1.0)
+        man_fat = st.number_input("Fat g (per 100g):", min_value=0.0, value=2.0, step=0.5)
+
+    if st.button("➕ Add Manual Custom Item"):
+        if man_name.strip():
+            st.session_state.multi_plan[target_meal][target_option].append({
+                "name": man_name.strip(),
+                "grams": float(man_grams),
+                "cal_100": float(man_cal),
+                "pro_100": float(man_pro),
+                "carb_100": float(man_carb),
+                "fat_100": float(man_fat)
+            })
+            st.success(f"Added '{man_name}' to {target_meal} [{target_option}]!")
+            st.rerun()
+        else:
+            st.warning("Please specify an item name.")
+
 with st.sidebar.expander("📲 MyFitnessPal Quick-Add Breakdown"):
     st.caption("Active option numbers to input using MyFitnessPal's Quick-Add button:")
     for m_name, chosen_opt in st.session_state.active_selections.items():
@@ -296,7 +326,7 @@ with st.sidebar.expander("📲 MyFitnessPal Quick-Add Breakdown"):
 # ---------------------------------------------------------
 # Main Page: Multi-Option Meal Designer & Macro Balancer
 # ---------------------------------------------------------
-st.title("🏋️️ Multi-Option Meal Plan Designer")
+st.title("🏋️ Multi-Option Meal Plan Designer")
 st.markdown("Create interchangeable options for each meal (Option A vs Option B) and balance their macros.")
 
 active_daily_cal, active_daily_pro, active_daily_carb, active_daily_fat = 0.0, 0.0, 0.0, 0.0

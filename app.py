@@ -1,25 +1,18 @@
 import io
+import datetime
 import requests
-from datetime import date
 import streamlit as st
 
-# PDF Generation Engine
+# ReportLab imports for generating printable PDF
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
 
-# Optional MyFitnessPal client
-try:
-    import myfitnesspal
-    MFP_AVAILABLE = True
-except ImportError:
-    MFP_AVAILABLE = False
-
-st.set_page_config(page_title="Multi-Option Macro Planner", layout="wide")
+st.set_page_config(page_title="Bodybuilding Multi-Option Planner", layout="wide")
 
 # ---------------------------------------------------------
-# Default Multi-Option Blueprint (Macros per 100g)
+# Default Multi-Option Meal Structure (Macros per 100g)
 # ---------------------------------------------------------
 DEFAULT_MULTI_PLAN = {
     "Meal 1 (Pre-Workout)": {
@@ -93,7 +86,7 @@ if "active_selections" not in st.session_state:
     st.session_state.active_selections = {m: list(opts.keys())[0] for m, opts in st.session_state.multi_plan.items()}
 
 # ---------------------------------------------------------
-# Calculations & Online Food Search
+# Web Search & Calculation Helpers
 # ---------------------------------------------------------
 def search_online_food(query):
     url = f"https://world.openfoodfacts.org/cgi/search.pl?search_terms={query}&search_simple=1&action=process&json=1&page_size=6"
@@ -122,7 +115,7 @@ def search_online_food(query):
                 })
             return products
     except Exception as e:
-        st.error(f"Network error contacting nutrition database: {e}")
+        st.error(f"Error fetching data from web: {e}")
     return []
 
 def calculate_totals(items):
@@ -136,7 +129,7 @@ def calculate_totals(items):
     return c, p, carb, f
 
 # ---------------------------------------------------------
-# PDF Generator
+# PDF Document Generator
 # ---------------------------------------------------------
 def generate_pdf(multi_plan, active_selections):
     buffer = io.BytesIO()
@@ -164,7 +157,7 @@ def generate_pdf(multi_plan, active_selections):
             act_fat += f
 
     summary_data = [
-        [Paragraph("<b>Active Blueprint Calories</b>", cell_bold), Paragraph("<b>Protein</b>", cell_bold), Paragraph("<b>Carbohydrates</b>", cell_bold), Paragraph("<b>Total Fats</b>", cell_bold)],
+        [Paragraph("<b>Active Plan Calories</b>", cell_bold), Paragraph("<b>Protein</b>", cell_bold), Paragraph("<b>Carbohydrates</b>", cell_bold), Paragraph("<b>Total Fats</b>", cell_bold)],
         [Paragraph(f"<b>{act_cal:.0f} kcal</b>", cell_style), Paragraph(f"<b>{act_pro:.1f} g</b>", cell_style), Paragraph(f"<b>{act_carb:.1f} g</b>", cell_style), Paragraph(f"<b>{act_fat:.1f} g</b>", cell_style)]
     ]
     t_summary = Table(summary_data, colWidths=[135, 135, 135, 135])
@@ -184,7 +177,7 @@ def generate_pdf(multi_plan, active_selections):
         meal_block = []
         meal_block.append(Paragraph(meal_name.upper(), section_heading))
         for opt_name, items in options.items():
-            is_active = "(ACTIVE BLUEPRINT)" if active_selections.get(meal_name) == opt_name else ""
+            is_active = "(ACTIVE)" if active_selections.get(meal_name) == opt_name else ""
             meal_block.append(Paragraph(f"<b>{opt_name}</b> {is_active}", body_style))
             
             table_data = [[
@@ -249,24 +242,24 @@ def generate_pdf(multi_plan, active_selections):
     return buffer
 
 # ---------------------------------------------------------
-# Sidebar: Target Config, Online Search & MFP Integration
+# Sidebar Controls & Quick-Add Helper
 # ---------------------------------------------------------
 st.sidebar.title("🛠️ Tools & Food Lookup")
 
-target_meal = st.sidebar.selectbox("Target Meal Slot:", list(st.session_state.multi_plan.keys()))
+target_meal = st.sidebar.selectbox("Select Target Meal:", list(st.session_state.multi_plan.keys()))
 options_for_meal = list(st.session_state.multi_plan[target_meal].keys())
-target_option = st.sidebar.selectbox(f"Target Variant for {target_meal}:", options_for_meal)
+target_option = st.sidebar.selectbox(f"Select Variant for {target_meal}:", options_for_meal)
 
 with st.sidebar.expander("➕ Create New Meal Option"):
-    new_opt_name = st.text_input("Option Name:", value=f"Option {chr(65 + len(options_for_meal))}")
+    new_opt_name = st.text_input("New Option Name:", value=f"Option {chr(65 + len(options_for_meal))}")
     if st.button("Create Option"):
         if new_opt_name not in st.session_state.multi_plan[target_meal]:
             st.session_state.multi_plan[target_meal][new_opt_name] = []
-            st.success(f"Added {new_opt_name} to {target_meal}!")
+            st.success(f"Created {new_opt_name} for {target_meal}!")
             st.rerun()
 
 with st.sidebar.expander("Search Live Nutrition Database", expanded=True):
-    search_term = st.text_input("Product Name:", placeholder="e.g. basmati rice, lean steak")
+    search_term = st.text_input("Product Name:", placeholder="e.g. oats, hake, sirloin")
     if st.button("Search Web"):
         if search_term.strip():
             with st.spinner("Searching online database..."):
@@ -281,7 +274,7 @@ with st.sidebar.expander("Search Live Nutrition Database", expanded=True):
         selected_item = options[selected_label]
         
         add_grams = st.number_input("Serving Grams:", min_value=1.0, max_value=1000.0, value=100.0, step=5.0)
-        if st.button("➕ Add to Selected Variant"):
+        if st.button("➕ Add to Target Option"):
             st.session_state.multi_plan[target_meal][target_option].append({
                 "name": selected_item["name"],
                 "grams": float(add_grams),
@@ -293,48 +286,18 @@ with st.sidebar.expander("Search Live Nutrition Database", expanded=True):
             st.success(f"Added to {target_meal} [{target_option}]!")
             st.rerun()
 
-# MyFitnessPal Sidebar Integration
-with st.sidebar.expander("📲 MyFitnessPal Sync"):
-    st.caption("Direct Diary Push (requires active session without bot-checks)")
-    mfp_user = st.text_input("MFP Username/Email")
-    mfp_pass = st.text_input("MFP Password", type="password")
-    if st.button("Sync Active Plan to Today's Diary"):
-        if not MFP_AVAILABLE:
-            st.error("The 'myfitnesspal' package is not installed. Run `pip install myfitnesspal`.")
-        elif mfp_user and mfp_pass:
-            try:
-                with st.spinner("Authenticating with MyFitnessPal..."):
-                    client = myfitnesspal.Client(mfp_user, password=mfp_pass)
-                    today = date.today()
-                    day = client.get_date(today.year, today.month, today.day)
-                    
-                    meal_slot_map = {
-                        "Meal 1 (Pre-Workout)": "Meal 1",
-                        "Intra-Workout": "Meal 2",
-                        "Meal 2 (Post-Workout)": "Meal 3",
-                        "Meal 3": "Meal 4",
-                        "Meal 4": "Meal 5",
-                        "Meal 5": "Meal 6"
-                    }
-
-                    for m_name, chosen_opt in st.session_state.active_selections.items():
-                        slot = meal_slot_map.get(m_name, "Meal 1")
-                        for itm in st.session_state.multi_plan[m_name][chosen_opt]:
-                            results = client.get_food_search_results(itm["name"])
-                            if results:
-                                day.meals[slot].add_entry(results[0], itm["grams"] / 100.0)
-
-                    st.success("Active plan synced to your MyFitnessPal diary!")
-            except Exception as ex:
-                st.error(f"Sync failed: {ex}. MFP frequently blocks script logins via Cloudflare; use the Quick-Add card below for instant logging.")
-        else:
-            st.warning("Enter your MFP credentials.")
+with st.sidebar.expander("📲 MyFitnessPal Quick-Add Breakdown"):
+    st.caption("Active option numbers to input using MyFitnessPal's Quick-Add button:")
+    for m_name, chosen_opt in st.session_state.active_selections.items():
+        c, p, cb, f = calculate_totals(st.session_state.multi_plan[m_name][chosen_opt])
+        st.write(f"**{m_name}** ({chosen_opt})")
+        st.text(f"{c:.0f} kcal | P: {p:.1f}g | C: {cb:.1f}g | F: {f:.1f}g")
 
 # ---------------------------------------------------------
 # Main Page: Multi-Option Meal Designer & Macro Balancer
 # ---------------------------------------------------------
-st.title("🏋️ Multi-Option Meal Plan Designer")
-st.markdown("Build interchangeable meals (Option A vs. Option B), balance macros dynamically, and export clean PDFs.")
+st.title("🏋️️ Multi-Option Meal Plan Designer")
+st.markdown("Create interchangeable options for each meal (Option A vs Option B) and balance their macros.")
 
 active_daily_cal, active_daily_pro, active_daily_carb, active_daily_fat = 0.0, 0.0, 0.0, 0.0
 
@@ -352,7 +315,6 @@ for meal_name, options in st.session_state.multi_plan.items():
             )
             st.session_state.active_selections[meal_name] = chosen
 
-        # Calculate macro differences across first two options
         if len(opt_names) >= 2:
             c1, p1, cb1, f1 = calculate_totals(options[opt_names[0]])
             c2, p2, cb2, f2 = calculate_totals(options[opt_names[1]])
@@ -366,13 +328,12 @@ for meal_name, options in st.session_state.multi_plan.items():
                     f"`Δ {diff_cal:+.0f} kcal` | `P: {diff_pro:+.1f}g` | `C: {diff_carb:+.1f}g` | `F: {diff_fat:+.1f}g`"
                 )
 
-        # Tabs for editing Option A, Option B, etc.
         tabs = st.tabs([f"📝 {opt}" for opt in opt_names])
         for opt_idx, opt_name in enumerate(opt_names):
             with tabs[opt_idx]:
                 items = options[opt_name]
                 if not items:
-                    st.write("_No food items in this option. Add items via the sidebar._")
+                    st.write("_No food items added to this option yet. Use the sidebar to add foods._")
                 else:
                     cols = st.columns([3, 2, 1, 1, 1, 1, 0.5])
                     cols[0].markdown("**Food Item**")
@@ -422,7 +383,6 @@ for meal_name, options in st.session_state.multi_plan.items():
                     f"**{opt_name} Subtotal:** `{m_cal:.0f} kcal` | **P:** `{m_pro:.1f}g` | **C:** `{m_carb:.1f}g` | **F:** `{m_fat:.1f}g`"
                 )
 
-        # Accumulate active selection macros
         act_c, act_p, act_cb, act_f = calculate_totals(options[st.session_state.active_selections[meal_name]])
         active_daily_cal += act_c
         active_daily_pro += act_p
@@ -430,29 +390,21 @@ for meal_name, options in st.session_state.multi_plan.items():
         active_daily_fat += act_f
 
 # ---------------------------------------------------------
-# Daily Totals & MFP Quick-Add Reference Card
+# Daily Dashboard & MyFitnessPal Quick-Add Summary
 # ---------------------------------------------------------
 st.markdown("## 📊 Active Blueprint Daily Totals")
-st.caption("Reflects the exact combination of active meal options selected above.")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Calories", f"{active_daily_cal:.0f} kcal")
 col2.metric("Protein", f"{active_daily_pro:.1f} g")
 col3.metric("Carbohydrates", f"{active_daily_carb:.1f} g")
 col4.metric("Fats", f"{active_daily_fat:.1f} g")
 
-with st.expander("⚡ MyFitnessPal Manual Quick-Add Numbers (Bypasses Login Blocks)"):
-    st.write("Use the **Quick Add** button in MyFitnessPal to enter these calculated values directly:")
+with st.expander("⚡ MyFitnessPal Manual Quick-Add Numbers (Per Meal)"):
+    st.write("If you enter macros via the MFP Quick-Add button, use these exact active meal figures:")
     q_data = []
     for m_name, chosen_opt in st.session_state.active_selections.items():
         c, p, cb, f = calculate_totals(st.session_state.multi_plan[m_name][chosen_opt])
-        q_data.append({
-            "Meal": m_name,
-            "Active Variant": chosen_opt,
-            "Calories (kcal)": f"{c:.0f}",
-            "Protein (g)": f"{p:.1f}",
-            "Carbs (g)": f"{cb:.1f}",
-            "Fat (g)": f"{f:.1f}"
-        })
+        q_data.append({"Meal": m_name, "Active Option": chosen_opt, "Calories": f"{c:.0f}", "Protein (g)": f"{p:.1f}", "Carbs (g)": f"{cb:.1f}", "Fat (g)": f"{f:.1f}"})
     st.table(q_data)
 
 st.divider()
